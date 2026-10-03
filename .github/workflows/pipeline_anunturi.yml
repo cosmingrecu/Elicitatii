@@ -2,8 +2,8 @@ name: ANAF Scraper & Extractor Pipeline
 
 on:
   schedule:
-    - cron: '0 6 * * *' # Rulează zilnic la ora 06:00 UTC
-  workflow_dispatch: # Permite rularea manuală din tab-ul Actions
+    - cron: '0 6 * * *' # Rulează zilnic la 06:00 UTC
+  workflow_dispatch:
 
 jobs:
   run-pipeline:
@@ -43,7 +43,7 @@ jobs:
         run: |
           python scraper.py
 
-      - name: Run Extractor (Batch processing)
+      - name: Run Extractor
         env:
           NEON_DB_HOST: ${{ secrets.NEON_DB_HOST }}
           NEON_DB_NAME: ${{ secrets.NEON_DB_NAME }}
