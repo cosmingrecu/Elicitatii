@@ -14,11 +14,16 @@ st.set_page_config(
     layout="wide"
 )
 
+# Design minimalist: Alb curat, text negru, linii fine
 st.markdown("""
     <style>
-        .main { background-color: #f4f6f9; }
-        .stMetric { background-color: #ffffff; padding: 15px; border-radius: 10px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
-        .quick-filter-box { background-color: #ffffff; padding: 15px; border-radius: 10px; box-shadow: 0 1px 3px rgba(0,0,0,0.05); margin-bottom: 20px; }
+        .stApp { background-color: #ffffff; color: #111111; }
+        .main { background-color: #ffffff; }
+        .stMetric { background-color: #fafafa; padding: 15px; border-radius: 8px; border: 1px solid #e0e0e0; box-shadow: none !important; }
+        .quick-filter-box { background-color: #fcfcfc; padding: 15px; border-radius: 8px; border: 1px solid #e0e0e0; margin-bottom: 20px; }
+        h1, h2, h3, h4, h5, h6 { color: #111111 !important; }
+        div.stButton > button { background-color: #111111; color: #ffffff; border-radius: 6px; border: none; }
+        div.stButton > button:hover { background-color: #333333; color: #ffffff; }
     </style>
 """, unsafe_allow_html=True)
 
@@ -61,6 +66,22 @@ def ia_conexiunea():
         port=db_port
     )
 
+@st.cache_data(ttl=60)
+(_conn)
+def incarca_date(_conn):
+    query = """
+        SELECT identificator, titlu, pret_pornire, pret_evaluare, numar_licitatie, timp_ramas, url, 
+               istoric_oferte, judet, descriere, tip_sectiune 
+        FROM anunturi_detalii;
+    """
+    df = pd.read_sql(query, _conn)
+    if not df.empty:
+        if 'pret_pornire' in df.columns:
+            df['pret_pornire'] = curata_pret(df['pret_pornire'])
+        if 'pret_evaluare' in df.columns:
+            df['pret_evaluare'] = curata_pret(df['pret_evaluare'])
+    return df
+
 try:
     conn = ia_conexiunea()
     
@@ -75,26 +96,14 @@ try:
         afiseaza_pagina_licitant(conn, selected_ofertant)
     else:
         st.title("🎯 Centralizator Publicitate & Licitații ANAF")
-        st.markdown("Panou de control avansat pentru identificarea activă a oportunităților de achiziție.")
+        st.markdown("Panou de control optimizat pentru identificarea activă a oportunităților.")
 
-        # Am adăugat și calculul/preluarea opțională a procentului de reducere dacă există în baza de date, 
-        # sau îl putem omite din column_config dacă nu este selectat în SQL.
-        query = """
-            SELECT identificator, titlu, pret_pornire, pret_evaluare, numar_licitatie, timp_ramas, url, 
-                   istoric_oferte, judet, descriere, tip_sectiune 
-            FROM anunturi_detalii;
-        """
-        df = pd.read_sql(query, conn)
+        df = incarca_date(conn)
         
         if df.empty:
             st.warning("Baza de date este goală momentan. Rulează scraperul pentru a aduce date!")
         else:
             df_filtrat = df.copy()
-
-            if 'pret_pornire' in df_filtrat.columns:
-                df_filtrat['pret_pornire'] = curata_pret(df_filtrat['pret_pornire'])
-            if 'pret_evaluare' in df_filtrat.columns:
-                df_filtrat['pret_evaluare'] = curata_pret(df_filtrat['pret_evaluare'])
 
             min_pret_val = float(df_filtrat['pret_pornire'].min()) if 'pret_pornire' in df_filtrat.columns and not df_filtrat['pret_pornire'].dropna().empty else 0.0
             max_pret_val = float(df_filtrat['pret_pornire'].max()) if 'pret_pornire' in df_filtrat.columns and not df_filtrat['pret_pornire'].dropna().empty else 1000000.0
@@ -103,7 +112,7 @@ try:
 
             with st.sidebar:
                 st.header("🔍 Filtre Avansate")
-                st.caption("Panou retractabil pentru rafinarea detaliată a portofoliului.")
+                st.caption("Rafinare detaliată portofoliu")
                 
                 st.markdown("---")
                 st.subheader("📂 Tip Secțiune")
@@ -115,9 +124,9 @@ try:
                 )
 
                 st.markdown("---")
-                st.subheader("💰 Interval Preț Pornire (RON)")
+                st.subheader("💰 Preț Pornire (RON)")
                 pret_min, pret_max = st.slider(
-                    "Alege intervalul de preț",
+                    "Alege intervalul",
                     min_value=min_pret_val,
                     max_value=max_pret_val,
                     value=(min_pret_val, max_pret_val),
@@ -131,41 +140,35 @@ try:
 
                 st.markdown("---")
                 st.subheader("📋 Criterii Specifice")
-                fil_tva = st.text_input("TVA / Altele", "", key="f_tva", placeholder="ex: '19', 'inclus'")
+                fil_tva = st.text_input("TVA / Altele", "", key="f_tva", placeholder="ex: 19, inclus")
                 
                 coloane_disponibile = [c for c in df_filtrat.columns if c not in ['url', 'titlu', 'descriere', 'judet', 'pret_pornire', 'pret_evaluare', 'tip_sectiune']]
-                fil_suplimentar = st.text_input("Alte mențiuni (căutare extinsă)", "", key="f_supl", placeholder="ex: 'garantat', 'executare'")
+                fil_suplimentar = st.text_input("Alte mențiuni", "", key="f_supl", placeholder="ex: garantat")
 
                 st.markdown("---")
-                if st.button("🔄 Resetează toate filtrele", use_container_width=True):
+                if st.button("🔄 Resetează filtrele", use_container_width=True):
                     st.rerun()
 
             st.markdown('<div class="quick-filter-box">', unsafe_allow_html=True)
             qcol1, qcol2, qcol3 = st.columns(3)
-            
             with qcol1:
-                fil_text_quick = st.text_input("🔍 Căutare rapidă text / cuvinte", "", key="f_text_quick", placeholder="ex: 'bijuterii', 'teren'")
+                fil_text_quick = st.text_input("🔍 Căutare rapidă text", "", key="f_text_quick", placeholder="ex: bijuterii, teren")
             with qcol2:
-                fil_judet_quick = st.text_input("📍 Județ", "", key="f_judet_quick", placeholder="ex: 'botosani'")
+                fil_judet_quick = st.text_input("📍 Județ", "", key="f_judet_quick", placeholder="ex: botosani")
             with qcol3:
-                fil_lic_quick = st.text_input("🔢 A cata licitație e (Nr. Licitație)", "", key="f_lic_quick", placeholder="ex: '4'")
-                
+                fil_lic_quick = st.text_input("🔢 Nr. Licitație", "", key="f_lic_quick", placeholder="ex: 4")
             st.markdown('</div>', unsafe_allow_html=True)
 
             # --- APLICARE FILTRE ---
             if tip_selectat == "Licitații":
                 if 'tip_sectiune' in df_filtrat.columns:
                     df_filtrat = df_filtrat[df_filtrat['tip_sectiune'].str.contains("licitatie", case=False, na=False)]
-                else:
-                    df_filtrat = df_filtrat[df_filtrat['url'].str.contains('/licitatii/produs/', na=False)]
             elif tip_selectat == "Publicitate":
                 if 'tip_sectiune' in df_filtrat.columns:
                     df_filtrat = df_filtrat[df_filtrat['tip_sectiune'].str.contains("publicitate", case=False, na=False)]
-                else:
-                    df_filtrat = df_filtrat[~df_filtrat['url'].str.contains('/licitatii/produs/', na=False)]
 
             if ascunde_expirate and 'timp_ramas' in df_filtrat.columns:
-                data_azi = datetime(2026, 8, 8) # Poți folosi datetime.now() dacă vrei data curentă dinamică
+                data_azi = datetime.now()
                 def este_licitatie_activa(val):
                     if pd.isna(val):
                         return True
@@ -187,11 +190,13 @@ try:
 
             if fil_text_quick:
                 termen_cautat = elimina_diacritice(fil_text_quick)
-                coloane_text = df_filtrat.select_dtypes(include=['object', 'string']).columns
-                masca_txt = df_filtrat[coloane_text].apply(
-                    lambda col: col.apply(elimina_diacritice).str.contains(termen_cautat, na=False)
-                ).any(axis=1)
-                df_filtrat = df_filtrat[masca_txt]
+                # Optimizat: căutăm doar pe titlu și descriere pentru viteză mare
+                coloane_cautare = [c for c in ['titlu', 'descriere', 'identificator'] if c in df_filtrat.columns]
+                if coloane_cautare:
+                    masca_txt = df_filtrat[coloane_cautare].astype(str).apply(
+                        lambda col: col.apply(elimina_diacritice).str.contains(termen_cautat, na=False)
+                    ).any(axis=1)
+                    df_filtrat = df_filtrat[masca_txt]
 
             if fil_judet_quick and 'judet' in df_filtrat.columns:
                 termen_judet = elimina_diacritice(fil_judet_quick)
@@ -216,27 +221,17 @@ try:
             if fil_tva:
                 termen_tva = elimina_diacritice(fil_tva)
                 coloane_tva = [c for c in df_filtrat.columns if 'tva' in c.lower()]
-                if not coloane_tva:
-                    coloane_tva = df_filtrat.select_dtypes(include=['object', 'string', 'number']).columns
-                masca_tva = df_filtrat[coloane_tva].apply(
-                    lambda col: col.apply(elimina_diacritice).str.contains(termen_tva, na=False)
-                ).any(axis=1)
-                df_filtrat = df_filtrat[masca_tva]
-
-            if fil_suplimentar and coloane_disponibile:
-                termen_supl = elimina_diacritice(fil_suplimentar)
-                masca_supl = df_filtrat[coloane_disponibile].apply(
-                    lambda col: col.apply(elimina_diacritice).str.contains(termen_supl, na=เซลล์ if 'เซลล์' in locals() else 'false') # safe check
-                ).any(axis=1) if False else df_filtrat[coloane_disponibile].apply(
-                    lambda col: col.apply(elimina_diacritice).str.contains(termen_supl, na=False)
-                ).any(axis=1)
-                df_filtrat = df_filtrat[masca_supl]
+                if coloane_tva:
+                    masca_tva = df_filtrat[coloane_tva].astype(str).apply(
+                        lambda col: col.apply(elimina_diacritice).str.contains(termen_tva, na=False)
+                    ).any(axis=1)
+                    df_filtrat = df_filtrat[masca_tva]
 
             # --- KPI METRICS ---
             kpi1, kpi2, kpi3, kpi4 = st.columns(4)
             kpi1.metric("Anunțuri Filtrate", len(df_filtrat))
             
-            if 'pret_pornire' in df_filtrat.columns and not df_filtrat.empty:
+            if 'pret_pornire' in df_filtrat.columns and not df_filtrat['pret_pornire'].dropna().empty:
                 medie_pret = df_filtrat['pret_pornire'].mean()
                 kpi2.metric("Preț Mediu Pornire", f"{medie_pret:,.0f} RON")
             else:
@@ -247,21 +242,23 @@ try:
 
             st.markdown("---")
             st.subheader("📋 Lista Oportunităților")
-            st.caption("💡 *Prețurile au fost corectate din formatul nativ ANAF în format numeric standard.*")
             
-            st.dataframe(
-                df_filtrat,
-                use_container_width=True,
-                hide_index=True,
-                column_config={
-                    "url": st.column_config.LinkColumn("Link Anunț ANAF", display_text="Vezi Anunțul 🔗"),
-                    "pret_pornire": st.column_config.NumberColumn("Preț Pornire (RON)", format="%.2f RON"),
-                    "pret_evaluare": st.column_config.NumberColumn("Preț Evaluare (RON)", format="%.2f RON"),
-                }
-            )
+            if df_filtrat.empty:
+                st.info("Nu există anunțuri care să corespundă filtrelor selectate.")
+            else:
+                st.dataframe(
+                    df_filtrat,
+                    use_container_width=True,
+                    hide_index=True,
+                    column_config={
+                        "url": st.column_config.LinkColumn("Link Anunț ANAF", display_text="Vezi Anunțul 🔗"),
+                        "pret_pornire": st.column_config.NumberColumn("Preț Pornire (RON)", format="%.2f RON"),
+                        "pret_evaluare": st.column_config.NumberColumn("Preț Evaluare (RON)", format="%.2f RON"),
+                    }
+                )
 
             st.markdown("---")
-            st.markdown("##### 🔍 Deschide pagina dedicată pentru un Anunț (după Identificator):")
+            st.markdown("##### 🔍 Deschide pagina dedicată pentru un Anunț:")
             col_sel_id, col_btn_id = st.columns([3, 1])
             with col_sel_id:
                 identificator_ales = st.selectbox(
@@ -271,7 +268,7 @@ try:
                     label_visibility="collapsed"
                 )
             with col_btn_id:
-                if st.button("Vezi Detalii Licitație", use_container_width=True):
+                if st.button("Vezi Detalii", use_container_width=True):
                     if identificator_ales:
                         st.query_params["page"] = "detalii"
                         st.query_params["identificator"] = str(identificator_ales)
