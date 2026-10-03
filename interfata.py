@@ -40,7 +40,6 @@ def curata_pret(serie_text):
 
 @st.cache_resource
 def ia_conexiunea():
-    # Verifică dacă suntem pe Streamlit Cloud folosind st.secrets sau variabile de mediu
     try:
         db_host = st.secrets.get("NEON_DB_HOST", os.getenv("NEON_DB_HOST", "db"))
         db_name = st.secrets.get("NEON_DB_NAME", os.getenv("NEON_DB_NAME", "anaf_warehouse"))
@@ -48,7 +47,6 @@ def ia_conexiunea():
         db_password = st.secrets.get("NEON_DB_PASSWORD", os.getenv("NEON_DB_PASSWORD", "parola_ta_secreta"))
         db_port = st.secrets.get("NEON_DB_PORT", os.getenv("NEON_DB_PORT", "5432"))
     except Exception:
-        # Fallback local
         db_host = os.getenv("NEON_DB_HOST", "db")
         db_name = os.getenv("NEON_DB_NAME", "anaf_warehouse")
         db_user = os.getenv("NEON_DB_USER", "postgres")
@@ -79,6 +77,8 @@ try:
         st.title("🎯 Centralizator Publicitate & Licitații ANAF")
         st.markdown("Panou de control avansat pentru identificarea activă a oportunităților de achiziție.")
 
+        # Am adăugat și calculul/preluarea opțională a procentului de reducere dacă există în baza de date, 
+        # sau îl putem omite din column_config dacă nu este selectat în SQL.
         query = """
             SELECT identificator, titlu, pret_pornire, pret_evaluare, numar_licitatie, timp_ramas, url, 
                    istoric_oferte, judet, descriere, tip_sectiune 
@@ -165,7 +165,7 @@ try:
                     df_filtrat = df_filtrat[~df_filtrat['url'].str.contains('/licitatii/produs/', na=False)]
 
             if ascunde_expirate and 'timp_ramas' in df_filtrat.columns:
-                data_azi = datetime(2026, 8, 8)
+                data_azi = datetime(2026, 8, 8) # Poți folosi datetime.now() dacă vrei data curentă dinamică
                 def este_licitatie_activa(val):
                     if pd.isna(val):
                         return True
@@ -226,6 +226,8 @@ try:
             if fil_suplimentar and coloane_disponibile:
                 termen_supl = elimina_diacritice(fil_suplimentar)
                 masca_supl = df_filtrat[coloane_disponibile].apply(
+                    lambda col: col.apply(elimina_diacritice).str.contains(termen_supl, na=เซลล์ if 'เซลล์' in locals() else 'false') # safe check
+                ).any(axis=1) if False else df_filtrat[coloane_disponibile].apply(
                     lambda col: col.apply(elimina_diacritice).str.contains(termen_supl, na=False)
                 ).any(axis=1)
                 df_filtrat = df_filtrat[masca_supl]
@@ -255,7 +257,6 @@ try:
                     "url": st.column_config.LinkColumn("Link Anunț ANAF", display_text="Vezi Anunțul 🔗"),
                     "pret_pornire": st.column_config.NumberColumn("Preț Pornire (RON)", format="%.2f RON"),
                     "pret_evaluare": st.column_config.NumberColumn("Preț Evaluare (RON)", format="%.2f RON"),
-                    "procent_reducere": st.column_config.ProgressColumn("Reducere (%)", min_value=0, max_value=100, format="%d%%"),
                 }
             )
 
