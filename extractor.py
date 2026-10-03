@@ -12,30 +12,13 @@ DB_PORT = os.getenv("NEON_DB_PORT", "5432")
 
 def get_db_connection():
     return psycopg2.connect(
-        host=DB_HOST,
-        database=DB_NAME,
-        user=DB_USER,
-        password=DB_PASSWORD,
-        port=DB_PORT,
-        sslmode="require"
+        host=DB_HOST, database=DB_NAME, user=DB_USER, password=DB_PASSWORD, port=DB_PORT, sslmode="require"
     )
 
 def run_extractor():
     conn = get_db_connection()
     cur = conn.cursor()
     
-    # Selectăm un batch de maximum 100 de linkuri neprocesate pentru a proteja memoria RAM și timpul de execuție
-    cur.execute("SELECT id, url FROM anunturi_detalii WHERE procesat = FALSE LIMIT 100;")
-    randuri = cur.fetchall()
-    
-    if not randuri:
-        print("Nu există linkuri noi de procesat în baza de date.")
-        cur.close()
-        conn.close()
-        return
-
-    print(f"S-au găsit {len_randuri := len(randuri)} linkuri de procesat în acest batch.")
-
     with sync_playwright() as p:
         browser = p.chromium.launch_persistent_context(
             user_data_dir="./browser_profile",
@@ -44,24 +27,30 @@ def run_extractor():
         )
         page = browser.new_page()
 
-        for record_id, url in randuri:
-            print(f"Procesare ID {record_id}: {url}")
+        while True:
+            # Preluare câte un anunț neprocesat pe rând
+            cur.execute("SELECT id, url FROM anunturi_detalii WHERE procesat = FALSE ORDER BY id ASC LIMIT 1;")
+            rand = cur.fetchone()
+            
+            if not rand:
+                print("Toate anunțurile au fost procesate.")
+                break
+                
+            record_id, url = rand
+            print(f"Extragere detaliu [ID: {record_id}]: {url}")
+            
             try:
                 page.goto(url, timeout=30000)
                 page.wait_for_load_state("domcontentloaded", timeout=15000)
                 
-                # Extragere HTML brut și curățare cu BeautifulSoup
                 html_content = page.content()
                 soup = BeautifulSoup(html_content, 'html.parser')
                 
-                # Eliminare elemente inutile (meniuri, footer, scripturi)
                 for script in soup(["script", "style", "nav", "footer", "header"]):
                     script.extract()
                     
-                # Extragere text util (ajustează selectorul specific conținutului principal dacă este nevoie, ex: div.continut-anunt)
-                continut_principal = soup.get_text(separator="\n", strip=True)
+                continut_text = soup.get_text(separator="\n", strip=True)
                 
-                # Actualizare în baza de date
                 cur_update = conn.cursor()
                 cur_update.execute(
                     """
@@ -69,17 +58,15 @@ def run_extractor():
                     SET continut = %s, procesat = TRUE 
                     WHERE id = %s;
                     """,
-                    (continut_principal, record_id)
+                    (continut_text, record_id)
                 )
                 conn.commit()
                 cur_update.close()
                 
-                # Pauză scurtă între cereri pentru a nu suprasolicita serverul ANAF
-                time.sleep(1)
+                time.sleep(1) # Pauză scurtă între cereri
                 
             except Exception as e:
-                print(f"Erore la procesarea paginii {url} (ID: {record_id}): {e}")
-                # Marcat ca procesat sau lăsat pentru reîncercare (aici marcăm cu eroare în conținut sau ignorăm pentru a nu bloca)
+                print(f"Erore la procesarea URL-ului {url}: {e}")
                 try:
                     cur_err = conn.cursor()
                     cur_err.execute(
@@ -90,13 +77,13 @@ def run_extractor():
                     cur_err.close()
                 except Exception as db_err:
                     conn.rollback()
-                    print(f"Erore la salvarea stării de eroare în DB: {db_err}")
+                    print(f"Erore salvare eroare în DB: {db_err}")
 
         browser.close()
 
     cur.close()
     conn.close()
-    print("Batch-ul de extracție s-a finalizat cu succes.")
+    print("Extracția pe rând s-a încheiat cu succes.")
 
 if __name__ == "__main__":
     run_extractor()
