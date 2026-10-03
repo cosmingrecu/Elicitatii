@@ -1,118 +1,148 @@
 import os
+import re
 import time
 import psycopg2
+from bs4 import BeautifulSoup
 from playwright.sync_api import sync_playwright
 
-DB_HOST = os.getenv("NEON_DB_HOST", "your_host")
-DB_NAME = os.getenv("NEON_DB_NAME", "your_db")
-DB_USER = os.getenv("NEON_DB_USER", "your_user")
-DB_PASSWORD = os.getenv("NEON_DB_PASSWORD", "your_password")
+# Preluare credențiale Neon DB din mediul GitHub Actions sau fallback local
+DB_HOST = os.getenv("NEON_DB_HOST", "localhost")
+DB_NAME = os.getenv("NEON_DB_NAME", "anaf_warehouse")
+DB_USER = os.getenv("NEON_DB_USER", "postgres")
+DB_PASSWORD = os.getenv("NEON_DB_PASSWORD", "parola_ta_secreta")
 DB_PORT = os.getenv("NEON_DB_PORT", "5432")
 
-def get_db_connection():
+def obtine_conexiune():
     return psycopg2.connect(
-        host=DB_HOST, database=DB_NAME, user=DB_USER, password=DB_PASSWORD, port=DB_PORT, sslmode="require"
+        dbname=DB_NAME,
+        user=DB_USER,
+        password=DB_PASSWORD,
+        host=DB_HOST,
+        port=DB_PORT,
+        sslmode="require" if DB_HOST != "localhost" else "prefer"
     )
 
-def init_db():
-    conn = get_db_connection()
+def extrage_identificator(url):
+    match = re.search(r'produs/([0-9-]+)', url)
+    if match:
+        return match.group(1).split('-')[0]
+    return url
+
+def initializeaza_baza():
+    conn = obtine_conexiune()
     cur = conn.cursor()
     cur.execute("""
         CREATE TABLE IF NOT EXISTS anunturi_detalii (
             id SERIAL PRIMARY KEY,
-            url TEXT UNIQUE NOT NULL,
-            tip_sectiune TEXT,
+            identificator TEXT UNIQUE,
+            url TEXT,
             titlu TEXT,
-            continut TEXT,
-            procesat BOOLEAN DEFAULT FALSE,
-            data_creare TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            pret_pornire TEXT,
+            pret_evaluare TEXT,
+            procent_reducere TEXT,
+            judet TEXT,
+            numar_licitatie TEXT,
+            cota_tva TEXT,
+            timp_ramas TEXT,
+            descriere TEXT,
+            istoric_oferte TEXT,
+            tip_sectiune TEXT,
+            procesat BOOLEAN DEFAULT FALSE
         );
     """)
     conn.commit()
     cur.close()
     conn.close()
 
-def run_scraper():
-    init_db()
+def colecteaza_sectiunea(page, tip_sectiune, url_start, max_pagini=700):
+    print(f"\n--- Începem colectarea pentru: {tip_sectiune} ---")
+    try:
+        page.goto(url_start, timeout=60000, wait_until="domcontentloaded")
+    except Exception as e:
+        print(f"Erore la deschiderea paginii de start: {e}")
+        return
+    
+    pagina_curenta = 1
+    total_salvate = 0
+
+    while pagina_curenta <= max_pagini:
+        soup = BeautifulSoup(page.content(), 'html.parser')
+        
+        linkuri_detalii = []
+        for a in soup.find_all('a', href=True):
+            if "Vedeți detalii" in a.get_text():
+                href = a['href']
+                full_url = href if href.startswith('http') else "https://elicitatii.anaf.ro" + href
+                linkuri_detalii.append(full_url)
+        
+        if not linkuri_detalii:
+            for a in soup.find_all('a', href=True):
+                href = a['href']
+                if '/detalii/' in href or '/anunt/' in href or '/licitatie/' in href:
+                    full_url = href if href.startswith('http') else "https://elicitatii.anaf.ro" + href
+                    linkuri_detalii.append(full_url)
+
+        linkuri_detalii = list(set(linkuri_detalii))
+        
+        conn = obtine_conexiune()
+        cur = conn.cursor()
+        salvate_pagina = 0
+        
+        for url in linkuri_detalii:
+            identificator = extrage_identificator(url)
+            try:
+                cur.execute("""
+                    INSERT INTO anunturi_detalii (identificator, url, tip_sectiune)
+                    VALUES (%s, %s, %s)
+                    ON CONFLICT (identificator) 
+                    DO UPDATE SET 
+                        url = EXCLUDED.url,
+                        tip_sectiune = EXCLUDED.tip_sectiune;
+                """, (identificator, url, tip_sectiune))
+                conn.commit()
+                salvate_pagina += 1
+                total_salvate += 1
+            except Exception as e:
+                conn.rollback()
+                print(f"Erore la inserare pentru {identificator}: {e}")
+        
+        cur.close()
+        conn.close()
+
+        print(f"[{tip_sectiune}] Pagina {pagina_curenta}: am găsit {len(linkuri_detalii)} anunțuri ({salvate_pagina} procesate). Total: {total_salvate}")
+
+        try:
+            buton_urmatoare = page.locator("a:has-text('Următoare')")
+            if buton_urmatoare.count() == 0 or "disabled" in (buton_urmatoare.get_attribute("class") or ""):
+                break
+            buton_urmatoare.click()
+            page.wait_for_load_state("domcontentloaded")
+            time.sleep(1)
+            pagina_curenta += 1
+        except Exception:
+            break
+
+def ruleaza_scraperul():
+    initializeaza_baza()
+    rute = [
+        ("PUBLICITATE", "https://elicitatii.anaf.ro/publicitate/categorii"),
+        ("LICITATIE", "https://elicitatii.anaf.ro/licitatii/categorii")
+    ]
     
     with sync_playwright() as p:
         browser = p.chromium.launch_persistent_context(
             user_data_dir="./browser_profile",
             headless=True,
-            args=["--no-sandbox", "--disable-dev-shm-usage"]
+            args=["--no-sandbox", "--disable-dev-shm-usage"],
+            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
         )
-        page = browser.new_page()
-        target_url = "https://www.anaf.ro/anunturi-valori-materiale/"
-        
-        try:
-            print(f"Accesare {target_url}...")
-            page.goto(target_url, timeout=60000)
-            page.wait_for_load_state("domcontentloaded")
-            
-            conn = get_db_connection()
-            cur = conn.cursor()
-            
-            pagina_curenta = 1
-            max_pagini = 500
-            
-            while pagina_curenta <= max_pagini:
-                print(f"Scraping pagină listă #{pagina_curenta}...")
-                page.wait_for_timeout(2000)
-                
-                # Căutare linkuri de detaliu pe pagina curentă
-                elemente_link = page.locator("a[href*='detalii'], a.detalii-anunt, table tr td a")
-                count = elemente_link.count()
-                
-                inregistrate = 0
-                for i in range(count):
-                    el = elemente_link.nth(i)
-                    href = el.get_attribute("href")
-                    titlu = el.inner_text().strip()
-                    
-                    if href:
-                        if href.startswith("/"):
-                            href = "https://www.anaf.ro" + href
-                        elif not href.startswith("http"):
-                            href = target_url.rstrip("/") + "/" + href
-                            
-                        try:
-                            cur.execute(
-                                """
-                                INSERT INTO anunturi_detalii (url, tip_sectiune, titlu)
-                                VALUES (%s, %s, %s)
-                                ON CONFLICT (url) DO NOTHING;
-                                """,
-                                (href, "valori_materiale", titlu)
-                            )
-                            conn.commit()
-                            inregistrate += 1
-                        except Exception as e:
-                            conn.rollback()
-                            print(f"Erore inserare DB: {e}")
-
-                print(f" -> Salvate {inregistrate} linkuri de pe pagina {pagina_curenta}.")
-                
-                # Navigare la pagina următoare folosind butonul specific paginării
-                buton_urmatoare = page.locator("a:has-text('Următoare'), a.pagination-next, li.next a, a:has-text('>')")
-                
-                if buton_urmatoare.count() > 0 and not ("disabled" in (buton_urmatoare.first.get_attribute("class") or "")):
-                    try:
-                        buton_urmatoare.first.click()
-                        page.wait_for_load_state("domcontentloaded", timeout=10000)
-                        pagina_curenta += 1
-                    except Exception as ex:
-                        print(f"Nu s-a putut avansa la pagina următoare: {ex}")
-                        break
-                else:
-                    print("S-a ajuns la ultima pagină.")
-                    break
-
-            cur.close()
-            conn.close()
-        except Exception as e:
-            print(f"Erore în scraper: {e}")
-        finally:
-            browser.close()
+        page = browser.pages[0] if browser.pages else browser.new_page()
+        for tip, url in rute:
+            try:
+                colecteaza_sectiunea(page, tip, url)
+            except Exception as e:
+                print(f"Erore pe secțiunea {tip}: {e}")
+        browser.close()
 
 if __name__ == "__main__":
-    run_scraper()
+    ruleaza_scraperul()
