@@ -1,0 +1,33 @@
+version: '3.8'
+
+services:
+  db:
+    image: postgres:15
+    container_name: anaf-db
+    restart: always
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: parola_ta_secreta
+      POSTGRES_DB: anaf_warehouse
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+  app-interfata:
+    image: python:3.10-slim
+    container_name: anaf-interfata
+    restart: always
+    working_dir: /app
+    volumes:
+      - .:/app
+    ports:
+      - "8501:8501"
+    command: >
+      bash -c "pip install streamlit psycopg2-binary pandas &&
+               streamlit run interfata.py --server.address=0.0.0.0"
+    depends_on:
+      - db
+
+volumes:
+    pgdata:
