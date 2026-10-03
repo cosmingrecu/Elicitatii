@@ -1,3 +1,4 @@
+import streamlit as pd  # sau import streamlit as st
 import streamlit as st
 import pandas as pd
 import subprocess
@@ -6,15 +7,15 @@ def afiseaza_pagina_detalii(conn, identificator_ales):
     # Zonă superioară cu butoane de navigație și acțiune
     col_nav, col_ext = st.columns([2, 1])
     with col_nav:
-        if st.button("← Înapoi la Panoul Principal"):
+        if st.button("← Înapoi la Panoul Principal", key="btn_ inapoi_principal"):
             st.query_params.clear()
             st.rerun()
             
     with col_ext:
-        if st.button("🔄 Rulează Extractor pentru acest Anunț", type="primary", use_container_width=True):
+        if st.button("🔄 Rulează Extractor pentru acest Anunț", type="primary", use_container_width=True, key=f"btn_extractor_{identificator_ales}"):
             with st.spinner("Se rulează extractorul pentru preluarea datelor în timp real..."):
                 try:
-                    # Aici poți apela scriptul tău extern de scraping, de exemplu:
+                    # Poți apela scriptul tău extern de scraping, de exemplu:
                     # subprocess.run(["python", "extractor.py", str(identificator_ales)], check=True)
                     
                     st.success("Datele au fost actualizate cu succes de la ANAF!")
@@ -80,7 +81,7 @@ def afiseaza_pagina_detalii(conn, identificator_ales):
             for index, o in enumerate(oferte_parseate):
                 col_a, col_b, col_c = st.columns([2, 2, 2])
                 with col_a:
-                    if st.button(f"👤 {o['ofertant_full']}", key=f"btn_of_{identificator_ales}_{index}"):
+                    if st.button(f"👤 {o['ofertant_full']}", key=f"btn_of_{identificator_ales}_{index}_{o['ofertant_id']}"):
                         st.query_params.clear()
                         st.query_params["page"] = "licitant"
                         st.query_params["ofertant"] = o['ofertant_id']
@@ -94,7 +95,7 @@ def afiseaza_pagina_detalii(conn, identificator_ales):
             st.info("Nu există oferte înregistrate pentru acest anunț.")
 
 def afiseaza_pagina_licitant(conn, selected_ofertant):
-    if st.button("← Înapoi la Panoul Principal"):
+    if st.button("← Înapoi la Panoul Principal", key="btn_inapoi_licitant_principal"):
         st.query_params.clear()
         st.rerun()
 
@@ -112,15 +113,19 @@ def afiseaza_pagina_licitant(conn, selected_ofertant):
         for item in istoric_raw.split(" | "):
             item_clean = item.strip("[]")
             if f"Ofertant {selected_ofertant}" in item_clean:
-                part_left, suma = item_clean.split(" -> ")
-                _, data_ora = part_left.split(" la ")
-                
-                toate_ofertele_lui.append({
-                    "identificator": anunt['identificator'],
-                    "titlu": anunt['titlu'],
-                    "data_ora": data_ora.strip(),
-                    "suma": suma.strip()
-                })
+                try:
+                    part_left, suma = item_clean.split(" -> ")
+                    _, data_ora = part_left.split(" la ")
+                    
+                    toate_ofertele_lui.append({
+                        "identificator": anunt['identificator'],
+                        "titlu": anunt['titlu'],
+                        "data_ora": data_ora.strip(),
+                        "suma": suma.strip()
+                    })
+                except Exception:
+                    # Ignoră liniile care nu respectă formatul așteptat
+                    continue
 
     toate_ofertele_lui = sorted(toate_ofertele_lui, key=lambda x: x['data_ora'], reverse=True)
     
@@ -137,7 +142,7 @@ def afiseaza_pagina_licitant(conn, selected_ofertant):
             with col3:
                 st.markdown(f"💰 **{o['suma']}**")
             with col4:
-                if st.button("Vezi Bunul", key=f"btn_bun_{o['identificator']}_{index}"):
+                if st.button("Vezi Bunul", key=f"btn_bun_{o['identificator']}_{index}_{selected_ofertant}"):
                     st.query_params.clear()
                     st.query_params["page"] = "detalii"
                     st.query_params["identificator"] = str(o['identificator'])
