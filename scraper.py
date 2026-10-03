@@ -1,5 +1,4 @@
 import os
-import re
 import time
 import psycopg2
 from bs4 import BeautifulSoup
@@ -22,20 +21,13 @@ def obtine_conexiune():
         sslmode="require" if DB_HOST != "localhost" else "prefer"
     )
 
-def extrage_identificator(url):
-    match = re.search(r'produs/([0-9-]+)', url)
-    if match:
-        return match.group(1).split('-')[0]
-    return url
-
 def initializeaza_baza():
     conn = obtine_conexiune()
     cur = conn.cursor()
     cur.execute("""
         CREATE TABLE IF NOT EXISTS anunturi_detalii (
             id SERIAL PRIMARY KEY,
-            identificator TEXT UNIQUE,
-            url TEXT,
+            url TEXT UNIQUE NOT NULL,
             titlu TEXT,
             pret_pornire TEXT,
             pret_evaluare TEXT,
@@ -89,27 +81,28 @@ def colecteaza_sectiunea(page, tip_sectiune, url_start, max_pagini=700):
         salvate_pagina = 0
         
         for url in linkuri_detalii:
-            identificator = extrage_identificator(url)
             try:
+                # Inserare bazată pe unicitatea URL-ului. Dacă URL-ul există deja, este ignorat complet (DO NOTHING).
                 cur.execute("""
-                    INSERT INTO anunturi_detalii (identificator, url, tip_sectiune)
-                    VALUES (%s, %s, %s)
-                    ON CONFLICT (identificator) 
-                    DO UPDATE SET 
-                        url = EXCLUDED.url,
-                        tip_sectiune = EXCLUDED.tip_sectiune;
-                """, (identificator, url, tip_sectiune))
+                    INSERT INTO anunturi_detalii (url, tip_sectiune)
+                    VALUES (%s, %s)
+                    ON CONFLICT (url) DO NOTHING;
+                """, (url, tip_sectiune))
+                
+                # Verificăm dacă rândul a fost efectiv inserat
+                if cur.rowcount > 0:
+                    salvate_pagina += 1
+                    total_salvate += 1
+                
                 conn.commit()
-                salvate_pagina += 1
-                total_salvate += 1
             except Exception as e:
                 conn.rollback()
-                print(f"Erore la inserare pentru {identificator}: {e}")
+                print(f"Erore la inserare pentru URL-ul {url}: {e}")
         
         cur.close()
         conn.close()
 
-        print(f"[{tip_sectiune}] Pagina {pagina_curenta}: am găsit {len(linkuri_detalii)} anunțuri ({salvate_pagina} procesate). Total: {total_salvate}")
+        print(f"[{tip_sectiune}] Pagina {pagina_curenta}: am găsit {len(linkuri_detalii)} anunțuri ({salvate_pagina} noi salvate). Total noi: {total_salvate}")
 
         try:
             buton_urmatoare = page.locator("a:has-text('Următoare')")
