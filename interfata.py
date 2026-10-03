@@ -67,7 +67,6 @@ def ia_conexiunea():
     )
 
 @st.cache_data(ttl=60)
-(_conn)
 def incarca_date(_conn):
     query = """
         SELECT identificator, titlu, pret_pornire, pret_evaluare, numar_licitatie, timp_ramas, url, 
@@ -190,7 +189,6 @@ try:
 
             if fil_text_quick:
                 termen_cautat = elimina_diacritice(fil_text_quick)
-                # Optimizat: căutăm doar pe titlu și descriere pentru viteză mare
                 coloane_cautare = [c for c in ['titlu', 'descriere', 'identificator'] if c in df_filtrat.columns]
                 if coloane_cautare:
                     masca_txt = df_filtrat[coloane_cautare].astype(str).apply(
@@ -246,8 +244,13 @@ try:
             if df_filtrat.empty:
                 st.info("Nu există anunțuri care să corespundă filtrelor selectate.")
             else:
+                # Limităm afișarea la maxim 250 de anunțuri în tabel
+                df_de_afisat = df_filtrat.head(250)
+                if len(df_filtrat) > 250:
+                    st.caption(f"⚠️ Se afișează primele 250 de anunțuri din totalul de {len(df_filtrat)} rezultate filtrate.")
+                
                 st.dataframe(
-                    df_filtrat,
+                    df_de_afisat,
                     use_container_width=True,
                     hide_index=True,
                     column_config={
