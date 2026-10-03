@@ -14,16 +14,56 @@ st.set_page_config(
     layout="wide"
 )
 
-# Design minimalist: Alb curat, text negru, linii fine
+# Design curat, modern, cu carduri bine definite și contrast excelent pentru a elimina orice text invizibil sau hașurat
 st.markdown("""
     <style>
-        .stApp { background-color: #ffffff; color: #111111; }
-        .main { background-color: #ffffff; }
-        .stMetric { background-color: #fafafa; padding: 15px; border-radius: 8px; border: 1px solid #e0e0e0; box-shadow: none !important; }
-        .quick-filter-box { background-color: #fcfcfc; padding: 15px; border-radius: 8px; border: 1px solid #e0e0e0; margin-bottom: 20px; }
-        h1, h2, h3, h4, h5, h6 { color: #111111 !important; }
-        div.stButton > button { background-color: #111111; color: #ffffff; border-radius: 6px; border: none; }
-        div.stButton > button:hover { background-color: #333333; color: #ffffff; }
+        .stApp { background-color: #f8fafc; color: #0f172a; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+        .main { background-color: #f8fafc; }
+        
+        /* Stil personalizat pentru cardurile KPI (evită orice efect de text șters sau confuz) */
+        .kpi-container {
+            display: grid;
+            grid-template-columns: repeat(4, minmax(0, 1fr));
+            gap: 1rem;
+            margin-bottom: 2rem;
+        }
+        .kpi-card {
+            background-color: #ffffff;
+            border: 1px solid #e2e8f0;
+            border-radius: 12px;
+            padding: 1.25rem;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -2px rgba(0, 0, 0, 0.05);
+            transition: all 0.2s ease-in-out;
+        }
+        .kpi-card:hover {
+            border-color: #cbd5e1;
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.08);
+        }
+        .kpi-label {
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            color: #64748b;
+            font-weight: 600;
+            margin-bottom: 0.5rem;
+        }
+        .kpi-value {
+            font-size: 1.75rem;
+            font-weight: 700;
+            color: #0f172a;
+            line-height: 1.2;
+        }
+        .quick-filter-box { 
+            background-color: #ffffff; 
+            padding: 20px; 
+            border-radius: 12px; 
+            border: 1px solid #e2e8f0; 
+            margin-bottom: 25px; 
+            box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.02);
+        }
+        h1, h2, h3, h4, h5, h6 { color: #0f172a !important; }
+        div.stButton > button { background-color: #0f172a; color: #ffffff; border-radius: 8px; border: none; font-weight: 600; padding: 0.5rem 1rem; }
+        div.stButton > button:hover { background-color: #1e293b; color: #ffffff; }
     </style>
 """, unsafe_allow_html=True)
 
@@ -225,18 +265,32 @@ try:
                     ).any(axis=1)
                     df_filtrat = df_filtrat[masca_tva]
 
-            # --- KPI METRICS ---
-            kpi1, kpi2, kpi3, kpi4 = st.columns(4)
-            kpi1.metric("Anunțuri Filtrate", len(df_filtrat))
-            
+            # --- KPI METRICS CU DESIGN PROFESIONAL (Fără hașuri sau text invizibil) ---
+            medie_pret_val = "N/A"
             if 'pret_pornire' in df_filtrat.columns and not df_filtrat['pret_pornire'].dropna().empty:
                 medie_pret = df_filtrat['pret_pornire'].mean()
-                kpi2.metric("Preț Mediu Pornire", f"{medie_pret:,.0f} RON")
-            else:
-                kpi2.metric("Preț Mediu Pornire", "N/A")
-                
-            kpi3.metric("Total Bază Date", len(df))
-            kpi4.metric("Sursa", "ANAF Online")
+                medie_pret_val = f"{medie_pret:,.0f} RON"
+
+            st.markdown(f"""
+                <div class="kpi-container">
+                    <div class="kpi-card">
+                        <div class="kpi-label">Anunțuri Filtrate</div>
+                        <div class="kpi-value">{len(df_filtrat):,}</div>
+                    </div>
+                    <div class="kpi-card">
+                        <div class="kpi-label">Preț Mediu Pornire</div>
+                        <div class="kpi-value">{medie_pret_val}</div>
+                    </div>
+                    <div class="kpi-card">
+                        <div class="kpi-label">Total Bază Date</div>
+                        <div class="kpi-value">{len(df):,}</div>
+                    </div>
+                    <div class="kpi-card">
+                        <div class="kpi-label">Sursa</div>
+                        <div class="kpi-value" style="font-size: 1.5rem; color: #0284c7;">ANAF Online</div>
+                    </div>
+                </div>
+            """, unsafe_allow_html=True)
 
             st.markdown("---")
             st.subheader("📋 Lista Oportunităților")
