@@ -4,7 +4,6 @@ import pandas as pd
 import unicodedata
 import re
 from datetime import datetime
-import os
 
 from pages_detalii import afiseaza_pagina_detalii, afiseaza_pagina_licitant
 
@@ -40,27 +39,12 @@ def curata_pret(serie_text):
 
 @st.cache_resource
 def ia_conexiunea():
-    # Verifică dacă suntem pe Streamlit Cloud folosind st.secrets sau variabile de mediu
-    try:
-        db_host = st.secrets.get("NEON_DB_HOST", os.getenv("NEON_DB_HOST", "db"))
-        db_name = st.secrets.get("NEON_DB_NAME", os.getenv("NEON_DB_NAME", "anaf_warehouse"))
-        db_user = st.secrets.get("NEON_DB_USER", os.getenv("NEON_DB_USER", "postgres"))
-        db_password = st.secrets.get("NEON_DB_PASSWORD", os.getenv("NEON_DB_PASSWORD", "parola_ta_secreta"))
-        db_port = st.secrets.get("NEON_DB_PORT", os.getenv("NEON_DB_PORT", "5432"))
-    except Exception:
-        # Fallback local
-        db_host = os.getenv("NEON_DB_HOST", "db")
-        db_name = os.getenv("NEON_DB_NAME", "anaf_warehouse")
-        db_user = os.getenv("NEON_DB_USER", "postgres")
-        db_password = os.getenv("NEON_DB_PASSWORD", "parola_ta_secreta")
-        db_port = os.getenv("NEON_DB_PORT", "5432")
-
     return psycopg2.connect(
-        dbname=db_name,
-        user=db_user,
-        password=db_password,
-        host=db_host,
-        port=db_port
+        dbname="anaf_warehouse",
+        user="postgres",
+        password="parola_ta_secreta",
+        host="db",
+        port="5432"
     )
 
 try:
@@ -79,6 +63,7 @@ try:
         st.title("🎯 Centralizator Publicitate & Licitații ANAF")
         st.markdown("Panou de control avansat pentru identificarea activă a oportunităților de achiziție.")
 
+        # Asigură-te că selectăm și tip_sectiune dacă există în tabel
         query = """
             SELECT identificator, titlu, pret_pornire, pret_evaluare, numar_licitatie, timp_ramas, url, 
                    istoric_oferte, judet, descriere, tip_sectiune 
@@ -153,6 +138,8 @@ try:
             st.markdown('</div>', unsafe_allow_html=True)
 
             # --- APLICARE FILTRE ---
+
+            # 0. Filtru Tip Secțiune
             if tip_selectat == "Licitații":
                 if 'tip_sectiune' in df_filtrat.columns:
                     df_filtrat = df_filtrat[df_filtrat['tip_sectiune'].str.contains("licitatie", case=False, na=False)]
@@ -164,6 +151,7 @@ try:
                 else:
                     df_filtrat = df_filtrat[~df_filtrat['url'].str.contains('/licitatii/produs/', na=False)]
 
+            # 1. Filtru Expirate
             if ascunde_expirate and 'timp_ramas' in df_filtrat.columns:
                 data_azi = datetime(2026, 8, 8)
                 def este_licitatie_activa(val):
@@ -185,6 +173,7 @@ try:
 
                 df_filtrat = df_filtrat[df_filtrat['timp_ramas'].apply(este_licitatie_activa)]
 
+            # 2. Căutare rapidă text
             if fil_text_quick:
                 termen_cautat = elimina_diacritice(fil_text_quick)
                 coloane_text = df_filtrat.select_dtypes(include=['object', 'string']).columns
@@ -193,11 +182,13 @@ try:
                 ).any(axis=1)
                 df_filtrat = df_filtrat[masca_txt]
 
+            # 3. Județ
             if fil_judet_quick and 'judet' in df_filtrat.columns:
                 termen_judet = elimina_diacritice(fil_judet_quick)
                 masca_judet = df_filtrat['judet'].apply(elimina_diacritice).str.contains(termen_judet, na=False)
                 df_filtrat = df_filtrat[masca_judet]
 
+            # 4. Număr licitație
             if fil_lic_quick:
                 coloane_lic = [c for c in df_filtrat.columns if 'licitatie' in c.lower() or 'nr' in c.lower() or 'numar' in c.lower()]
                 if coloane_lic:
@@ -206,6 +197,7 @@ try:
                     ).any(axis=1)
                     df_filtrat = df_filtrat[masca_lic]
 
+            # 5. Preț pornire
             if 'pret_pornire' in df_filtrat.columns:
                 df_filtrat = df_filtrat[
                     (df_filtrat['pret_pornire'] >= pret_min) & 
@@ -213,6 +205,7 @@ try:
                     (df_filtrat['pret_pornire'].isna())
                 ]
 
+            # 6. TVA / Altele
             if fil_tva:
                 termen_tva = elimina_diacritice(fil_tva)
                 coloane_tva = [c for c in df_filtrat.columns if 'tva' in c.lower()]
@@ -223,6 +216,7 @@ try:
                 ).any(axis=1)
                 df_filtrat = df_filtrat[masca_tva]
 
+            # 7. Mențiuni suplimentare
             if fil_suplimentar and coloane_disponibile:
                 termen_supl = elimina_diacritice(fil_suplimentar)
                 masca_supl = df_filtrat[coloane_disponibile].apply(
@@ -247,6 +241,7 @@ try:
             st.subheader("📋 Lista Oportunităților")
             st.caption("💡 *Prețurile au fost corectate din formatul nativ ANAF în format numeric standard.*")
             
+            # --- TABEL ---
             st.dataframe(
                 df_filtrat,
                 use_container_width=True,
